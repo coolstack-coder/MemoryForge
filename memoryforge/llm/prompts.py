@@ -125,3 +125,9 @@ def parse_distilled(text: str) -> tuple[str | None, str | None]:
     m = _LESSON_LINE_RE.search(text)
     lesson = m.group(1).strip() if m else None
     return parse_pattern(text), lesson
+
+
+def render_feedback(feedback: str | None) -> str:
+    if not feedback:
+        return ""
+    return f"\n## Test feedback from your previous attempt\n{feedback}\n"
