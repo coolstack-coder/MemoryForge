@@ -23,7 +23,10 @@ function h(tag, attrs = {}, ...kids) {
   return el;
 }
 const pct = (x, d = 1) => (x == null ? "–" : `${(100 * x).toFixed(d)}%`);
-const pp = (x, d = 1) => `${x >= 0 ? "+" : ""}${(100 * x).toFixed(d)} pp`;
+const pp = (x, d = 1) => {
+  const v = Number((100 * x).toFixed(d));
+  return `${v > 0 ? "+" : v < 0 ? "" : "±"}${(v === 0 ? 0 : v).toFixed(d)} pp`;
+};
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 const COND_COLORS = {
