@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MemoryForge</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23ff7a2f'/><path d='M9 22V10l7 7 7-7v12' stroke='%23140d08' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script defer src="/static/app.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8"/><path d="M9 22V10l7 7 7-7v12"/></svg></span>
+    <span class="name">MemoryForge</span>
+  </div>
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <a role="tab" href="#overview">Overview</a>
+    <a role="tab" href="#experiments">Experiments</a>
+    <a role="tab" href="#lessons">Lessons</a>
+    <a role="tab" href="#patterns">Failure patterns</a>
+    <a role="tab" href="#explorer">Attempt explorer</a>
+    <a role="tab" href="#live">Live run</a>
+  </nav>
+  <div class="tools">
+    <label class="run-pick"><span class="sr">Run</span><select id="run-select" aria-label="Select run"></select></label>
+    <button id="theme" class="icon-btn" aria-label="Toggle colour theme" title="Toggle theme">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+  <div id="empty" class="empty card" hidden>
+    <h2>No benchmark runs yet</h2>
+    <p>Start one from the <a href="#live">Live run</a> tab, or from a terminal:</p>
+    <pre>memoryforge bench --seeds 5</pre>
+  </div>
+
+  <!-- OVERVIEW -->
+  <section id="overview" class="panel" role="tabpanel">
+    <div class="hero card">
+      <div>
+        <p class="eyebrow" id="ov-eyebrow">Held-out evaluation</p>
+        <h1 id="ov-headline">Does memory help on tasks the agent has never seen?</h1>
+        <p class="muted" id="ov-sub"></p>
+      </div>
+      <div class="badges" id="ov-badges"></div>
+    </div>
+    <div class="kpis">
+      <article class="card kpi"><h3>pass@1 · no memory</h3><div class="v" id="k-off">–</div><small id="k-off-ci"></small></article>
+      <article class="card kpi accent"><h3>pass@1 · MemoryForge</h3><div class="v" id="k-on">–</div><small id="k-on-ci"></small></article>
+      <article class="card kpi"><h3>Lift vs no memory</h3><div class="v" id="k-lift">–</div><div class="interval" id="k-lift-bar"></div><small id="k-lift-ci"></small></article>
+      <article class="card kpi"><h3>Harmful lessons blocked</h3><div class="v" id="k-harm">–</div><small id="k-harm-sub"></small></article>
+    </div>
+    <div class="grid two">
+      <div class="card"><div class="card-h"><h3>pass@1 by condition</h3><span class="hint">95% bootstrap CI over tasks</span></div><div class="chart"><canvas id="ch-ov-bars"></canvas></div></div>
+      <div class="card"><div class="card-h"><h3>Learning curve · experience stream</h3><span class="hint">rolling pass@1, mean over seeds</span></div><div class="chart"><canvas id="ch-ov-curve"></canvas></div></div>
+    </div>
+  </section>
+
+  <!-- EXPERIMENTS -->
+  <section id="experiments" class="panel" role="tabpanel" hidden>
+    <div class="card">
+      <div class="card-h"><h3>All conditions</h3><span class="hint" id="ex-meta"></span></div>
+      <div class="table-wrap"><table class="data" id="ex-table"><thead><tr>
+        <th>Condition</th><th>pass@1</th><th>95% CI</th><th id="ex-solved-h">solved@K</th><th>mean trials</th><th>tokens / task</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="grid two">
+      <div class="card"><div class="card-h"><h3>pass@1 and solved@K</h3></div><div class="chart tall"><canvas id="ch-ex-bars"></canvas></div></div>
+      <div class="card"><div class="card-h"><h3>Paired contrasts</h3><span class="hint">difference in pass@1, 95% CI</span></div><div id="forest" class="forest"></div></div>
+    </div>
+    <div class="grid two">
+      <div class="card"><div class="card-h"><h3>Memory composition</h3></div><div id="ex-memory"></div></div>
+      <div class="card"><div class="card-h"><h3>Learned reranker</h3><span class="hint">held-out AUC vs. formula</span></div><div id="ex-rerank"></div></div>
+    </div>
+  </section>
+
+  <!-- LESSONS -->
+  <section id="lessons" class="panel" role="tabpanel" hidden>
+    <div class="card">
+      <div class="filters">
+        <input id="l-q" type="search" placeholder="Search lessons or patterns…" aria-label="Search lessons">
+        <select id="l-memory" aria-label="Memory"><option value="verified">Verified memory</option><option value="raw_memory">Raw memory</option></select>
+        <select id="l-seed" aria-label="Seed"></select>
+        <div class="chips" id="l-status" role="group" aria-label="Filter by status"></div>
+      </div>
+      <p class="muted small" id="l-count"></p>
+      <div id="l-list" class="lesson-list"></div>
+    </div>
+  </section>
+
+  <!-- PATTERNS -->
+  <section id="patterns" class="panel" role="tabpanel" hidden>
+    <div class="card"><div class="card-h"><h3>pass@1 on eval tasks, grouped by the pitfall they contain</h3></div><div class="chart tall"><canvas id="ch-patterns"></canvas></div></div>
+    <div class="grid two">
+      <div class="card"><div class="card-h"><h3>Failure classifier</h3><span class="hint" id="clf-acc"></span></div><div id="confusion" class="confusion"></div></div>
+      <div class="card"><div class="card-h"><h3>Pattern vocabulary</h3></div><ul id="vocab" class="vocab"></ul></div>
+    </div>
+  </section>
+
+  <!-- EXPLORER -->
+  <section id="explorer" class="panel" role="tabpanel" hidden>
+    <div class="card filters">
+      <label>Task <select id="x-task"></select></label>
+      <label>Condition <select id="x-cond"></select></label>
+      <label>Seed <select id="x-seed"></select></label>
+      <label>Phase <select id="x-phase"><option value="eval">eval</option><option value="train">train</option></select></label>
+    </div>
+    <div class="card" id="x-task-card"></div>
+    <ol class="timeline" id="x-timeline"></ol>
+  </section>
+
+  <!-- LIVE -->
+  <section id="live" class="panel" role="tabpanel" hidden>
+    <div class="grid two">
+      <div class="card">
+        <div class="card-h"><h3>Run a simulated benchmark</h3></div>
+        <p class="muted small">Runs every condition offline with the deterministic simulator. Takes a minute or two.</p>
+        <form id="live-form" class="form">
+          <label>Seeds <input type="number" name="seeds" min="1" max="10" value="2"></label>
+          <label>Training tasks <input type="number" name="n_train" min="2" max="24" value="24"></label>
+          <label>Eval tasks <input type="number" name="n_eval" min="2" max="12" value="12"></label>
+          <label>Harmful-lesson rate <input type="range" name="harmful_rate" min="0" max="0.8" step="0.1" value="0.2"><output id="hr-out">0.2</output></label>
+          <button class="btn" id="live-start" type="submit">Start run</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Progress</h3><span class="hint" id="live-state">idle</span></div>
+        <div class="progress"><div id="live-bar"></div></div>
+        <div class="live-stats"><div><span id="live-done">0</span><small>units done</small></div><div><span id="live-rate">–</span><small>pass rate</small></div></div>
+        <pre id="live-log" class="log" aria-live="polite"></pre>
+        <a id="live-open" class="btn ghost" href="#overview" hidden>Open results</a>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="foot">MemoryForge · persistent, verified experience memory for coding agents</footer>
+</body>
+</html>
