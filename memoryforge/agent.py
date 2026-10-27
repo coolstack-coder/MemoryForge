@@ -99,7 +99,7 @@ class Agent:
 
         self.retriever = Retriever(
             store, namespace, policy.retrieve_statuses, k=top_k, holdout=0.0,
-            shuffled=condition.shuffled, reranker=reranker,
+            shuffled=condition.shuffled, reranker=reranker, embedder=embedder,
             rng=random.Random(_seed("retrieval", seed, condition.key)),
         )
 
