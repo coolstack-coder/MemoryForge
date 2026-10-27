@@ -1,0 +1,52 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+      POSTGRES_DB: memoryforge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d memoryforge"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # one-shot benchmark: docker compose run --rm bench
+  bench:
+    build: .
+    command: ["memoryforge", "bench", "--seeds", "5"]
+    environment: &env
+      MF_DATABASE_URL: postgresql://forge:forge@db:5432/memoryforge
+      MF_LLM_BACKEND: ${MF_LLM_BACKEND:-simulated}
+      MF_LLM_BASE_URL: ${MF_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      MF_LLM_MODEL: ${MF_LLM_MODEL:-qwen2.5-coder:7b}
+      MF_LLM_API_KEY: ${MF_LLM_API_KEY:-}
+    volumes:
+      - ./runs:/app/runs
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["bench"]
+    # generated code runs here: no extra privileges, bounded resources
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    pids_limit: 256
+    mem_limit: 4g
+
+  app:
+    build: .
+    environment: *env
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./runs:/app/runs
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+volumes:
+  pgdata:
