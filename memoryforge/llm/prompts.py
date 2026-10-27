@@ -92,7 +92,7 @@ def render_reflection(reflections: list[str]) -> str:
     )
 
 
-_LESSON_RE = re.compile(r"\[id=(\S+)\] \[pattern=([a-z_]+)\]")
+_LESSON_RE = re.compile(r"\[id=(\S+)\] \[pattern=([a-z_]+)\] ?(.*)")
 _PATTERN_RE = re.compile(r"pattern\s*=\s*([a-z_]+)")
 _LESSON_LINE_RE = re.compile(r"lesson\s*=\s*(.+)")
 _TASK_RE = re.compile(r"TASK_ID:\s*(\S+)")
@@ -105,6 +105,12 @@ def _between(text: str, begin: str, end: str) -> str:
 
 def parse_lesson_patterns(prompt: str) -> list[str]:
     return [m.group(2) for m in _LESSON_RE.finditer(_between(prompt, LESSON_BEGIN, LESSON_END))]
+
+
+def parse_lessons(prompt: str) -> list[tuple[str, str]]:
+    """(pattern, text) for every lesson in the prompt's lesson block."""
+    block = _between(prompt, LESSON_BEGIN, LESSON_END)
+    return [(m.group(2), m.group(3).strip()) for m in _LESSON_RE.finditer(block)]
 
 
 def parse_reflection_patterns(prompt: str) -> list[str]:
