@@ -1,0 +1,21 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# local state
+*.sqlite3
+*.db
+runs/*
+!runs/.gitkeep
+.env
+.DS_Store
+
+# model caches
+.hf_cache/
