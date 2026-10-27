@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memoryforge"
+version = "0.1.0"
+description = "A coding agent that remembers its failures, verifies its lessons, and measures whether memory actually helps."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Anmol Advani" }]
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26",
+  "torch>=2.2",
+  "httpx>=0.27",
+  "pydantic>=2.6",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "rich>=13.7",
+  "scipy>=1.12",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.1", "pgvector>=0.2.5"]
+embeddings = ["sentence-transformers>=2.7"]
+local = ["transformers>=4.40", "accelerate>=0.29"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+memoryforge = "memoryforge.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["memoryforge*"]
+
+[tool.setuptools.package-data]
+memoryforge = ["server/static/*", "memory/schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
