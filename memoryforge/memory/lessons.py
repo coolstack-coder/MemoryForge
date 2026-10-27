@@ -28,7 +28,7 @@ class Policy:
 
     retrieve_statuses: tuple[str, ...] = ("verified",)
     verify: bool = True
-    replay_seeds: int = 4
+    replay_seeds: int = 10  # upper bound; replay stops early once decisive
     holdout: float = 0.15
 
 
