@@ -30,6 +30,10 @@ from .sandbox import ExtractionError, ExecResult, extract_function, run_tests
 log = logging.getLogger(__name__)
 VOCAB = ", ".join(ALL_PATTERNS)
 
+# Tests are deterministic, so identical code on the same task gives the same
+# result; caching saves a subprocess per repeated candidate.
+_EXEC_CACHE: dict[tuple[str, str], ExecResult] = {}
+
 
 @dataclass
 class TrialRecord:
@@ -122,7 +126,10 @@ class Agent:
             code = extract_function(raw, task.entry_point)
         except ExtractionError as e:
             return raw, ExecResult(passed=False, load_error=f"ExtractionError: {e}")
-        return code, run_tests(code, task.entry_point, task.tests, timeout=self.sandbox_timeout)
+        key = (task.id, hashlib.sha256(code.encode()).hexdigest())
+        if key not in _EXEC_CACHE:
+            _EXEC_CACHE[key] = run_tests(code, task.entry_point, task.tests, timeout=self.sandbox_timeout)
+        return code, _EXEC_CACHE[key]
 
     def _reflect(self, task: Task, code: str, feedback: str, seed: int) -> tuple[str, int]:
         user = P.REFLECT_USER.format(task_id=task.id, spec=task.spec, code=code, feedback=feedback, vocab=VOCAB)
@@ -140,7 +147,7 @@ class Agent:
         last_pattern: str | None = None
         tokens = 0
         records: list[TrialRecord] = []
-        failures: list[tuple[int, str, str | None]] = []  # (attempt_id, reflection, diagnosed pattern)
+        failures: list[tuple[int, str, str | None, int]] = []  # (attempt, reflection, pattern, seed)
         self.retriever.holdout = self.policy.holdout if learn else 0.0
 
         for trial in range(1, self.max_trials + 1):
@@ -178,7 +185,7 @@ class Agent:
                 tokens += used
                 self.store.update_attempt(attempt_id, reflection=reflection)
                 reflections.append(reflection)
-                failures.append((attempt_id, reflection, diag.pattern if diag else None))
+                failures.append((attempt_id, reflection, diag.pattern if diag else None, seed))
             records.append(TrialRecord(trial, attempt_id, result.passed, diag.pattern if diag else None,
                                        true_pattern, [r.lesson["lesson_id"] for r in retrieved], reflection))
             if result.passed:
@@ -197,11 +204,11 @@ class Agent:
         return TaskResult(task.id, passed, records[0].passed, len(records), tokens, records, new_lessons)
 
     # ------------------------------------------------------------------
-    def _learn(self, task: Task, step: int, failures: list[tuple[int, str, str | None]]) -> list[dict]:
+    def _learn(self, task: Task, step: int, failures: list[tuple[int, str, str | None, int]]) -> list[dict]:
         out: list[dict] = []
         context = self.embedder.embed([task.spec])[0]
         seen: set[str] = set()
-        for attempt_id, reflection, diagnosed in failures:
+        for attempt_id, reflection, diagnosed, failed_seed in failures:
             user = P.DISTILL_USER.format(task_id=task.id, reflection=reflection, vocab=VOCAB)
             comp = self.llm.complete(
                 [{"role": "system", "content": P.DISTILL_SYSTEM}, {"role": "user", "content": user}],
@@ -232,7 +239,7 @@ class Agent:
             )
             info["lesson_id"] = lesson_id
             if self.policy.verify:
-                verdict, replay, used = self.verify(task, lesson_id, step)
+                verdict, replay, used = self.verify(task, lesson_id, step, failed_seed)
                 info["_tokens"] += used
                 self.store.update_lesson(lesson_id, status=verdict, replay=replay)
                 info["status"] = verdict
@@ -241,26 +248,46 @@ class Agent:
             out.append(info)
         return out
 
-    def verify(self, task: Task, lesson_id: int, step: int) -> tuple[str, dict, int]:
-        """Counterfactual replay: same task, paired seeds, with vs without the lesson."""
+    def verify(self, task: Task, lesson_id: int, step: int, failed_seed: int | None = None) -> tuple[str, dict, int]:
+        """Counterfactual replay on the source task with paired seeds.
+
+        For each seed we generate once with the lesson and once without it. A
+        seed counts as improved when the lesson turns a failure into a pass or
+        removes the lesson's own failure pattern, and as worsened in the mirror
+        case. The seed that originally failed is replayed first. A lesson is
+        verified when improvements outnumber regressions (b > c, b >= 1).
+        """
         lesson = self.store.get_lesson(lesson_id)
         r = Retrieved(lesson=lesson, score=1.0, features={})
-        b = c = with_pass = without_pass = tokens = 0
-        n = self.policy.replay_seeds
-        for i in range(n):
-            seed = _seed(self.seed, task.id, "replay", lesson_id, i)
-            raw_with, t1 = self._generate(task, [r], [], None, seed)
-            raw_without, t2 = self._generate(task, [], [], None, seed)
-            tokens += t1 + t2
-            ok_with = self._evaluate(task, raw_with)[1].passed
-            ok_without = self._evaluate(task, raw_without)[1].passed
-            with_pass += ok_with
-            without_pass += ok_without
-            b += ok_with and not ok_without
-            c += ok_without and not ok_with
+        max_n = self.policy.replay_seeds
+        seeds = [_seed(self.seed, task.id, "replay", lesson_id, i) for i in range(max_n)]
+        if failed_seed is not None:
+            seeds = [failed_seed] + seeds[: max_n - 1]
+        b = c = with_pass = without_pass = tokens = n = informative = 0
+        for seed in seeds:
+            n += 1
+            hits, passes = [], []
+            for lessons in ([r], []):
+                raw, used = self._generate(task, lessons, [], None, seed)
+                tokens += used
+                code, res = self._evaluate(task, raw)
+                pattern = None if res.passed else classify(res, code).pattern
+                hits.append(pattern == lesson["pattern"])
+                passes.append(res.passed)
+            (hit_with, hit_without), (pass_with, pass_without) = hits, passes
+            with_pass += pass_with
+            without_pass += pass_without
+            improved = (pass_with and not pass_without) or (hit_without and not hit_with)
+            worsened = (pass_without and not pass_with) or (hit_with and not hit_without)
+            b += improved and not worsened
+            c += worsened and not improved
+            informative += improved or worsened
+            # stop once the evidence is decisive either way
+            if b >= 2 or c >= 2 or informative >= 4:
+                break
         verdict = "verified" if b >= 1 and b > c else "rejected"
-        return verdict, {"n": n, "b": b, "c": c, "with_pass": with_pass, "without_pass": without_pass,
-                         "step": step}, tokens
+        return verdict, {"n": n, "b": b, "c": c, "informative": informative, "with_pass": with_pass,
+                         "without_pass": without_pass, "step": step}, tokens
 
 
 def _merge_context(old: np.ndarray, new: np.ndarray) -> np.ndarray:
