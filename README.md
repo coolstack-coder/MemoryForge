@@ -339,9 +339,9 @@ MemoryForge builds on Reflexion:
   year      = {2023}
 }
 
-@software{advani2026memoryforge,
+@software{adwani2026memoryforge,
   title  = {MemoryForge: persistent, verified experience memory for coding agents},
-  author = {Advani, Anmol},
+  author = {Adwani, Anmol},
   year   = {2026},
   url    = {https://github.com/coolstack-coder/MemoryForge}
 }
@@ -349,4 +349,4 @@ MemoryForge builds on Reflexion:
 
 ## License
 
-[MIT](LICENSE) © 2026 Anmol Advani
+[MIT](LICENSE) © 2026 Anmol Adwani
