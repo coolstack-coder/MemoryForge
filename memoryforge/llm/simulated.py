@@ -15,7 +15,11 @@ How it behaves:
     multiplies it by (1 - reflection_effect); each irrelevant lesson adds a
     small distraction penalty.
   * Reflections misdiagnose the pattern with probability `misdiagnosis`, which
-    produces plausible-but-wrong lessons. Verification has to catch those.
+    produces lessons aimed at the wrong pitfall.
+  * With probability `harmful_rate` distillation writes a plausible-sounding
+    but wrong rule (HARMFUL_TEMPLATES). When such a rule is in the prompt the
+    pitfall it talks about becomes *more* likely (`harm_effect`). Verification
+    and online deprecation have to catch those.
 """
 
 from __future__ import annotations
@@ -72,6 +76,20 @@ LESSON_TEMPLATES: dict[str, list[str]] = {
     ],
 }
 
+# Plausible but wrong advice: each one sounds like a lesson and makes the bug likelier.
+HARMFUL_TEMPLATES: dict[str, str] = {
+    "empty_input": "When a sequence might be empty, let the natural exception propagate instead of special-casing it.",
+    "off_by_one": "When computing an upper bound, Python ranges and slices already include the end, so no adjustment is needed.",
+    "tie_ordering": "When results contain ties, sort them alphabetically so the output is deterministic.",
+    "whitespace_case": "When splitting text, split on a single space so empty tokens keep their positions.",
+    "negative_numbers": "When a count or offset is negative, clamp it to zero to keep indices valid.",
+    "mutates_input": "When performance matters, sort the input list in place instead of allocating a copy.",
+    "shared_reference": "When returning data you were given, return it directly; copying wastes memory.",
+    "float_rounding": "When a spec asks for one decimal place, format with f'{x:.1f}', which rounds half up.",
+    "inefficient": "When inputs are lists, a straightforward nested loop is fast enough in practice.",
+    "error_contract": "When arguments are invalid, return a neutral value such as 0 or an empty list rather than raising.",
+}
+
 REFLECTION_TEMPLATES: dict[str, str] = {
     "empty_input": "The implementation assumed the input is non-empty and broke on the degenerate case.",
     "off_by_one": "A boundary was off by one: an inclusive end was treated as exclusive (or vice versa).",
@@ -93,6 +111,8 @@ class SimConfig:
     reflection_effect: float = 0.6
     distraction: float = 0.03
     misdiagnosis: float = 0.3
+    harmful_rate: float = 0.2
+    harm_effect: float = 0.35
 
 
 def _rng(*parts: object) -> random.Random:
@@ -139,14 +159,18 @@ class SimulatedLLM:
         self.meter.add(usage)
         return Completion(text=text, usage=usage, backend="simulated", simulated=True)
 
-    def bug_probability(self, pattern: str, lesson_patterns: list[str], reflection_patterns: list[str]) -> float:
+    def bug_probability(self, pattern: str, lessons: list[tuple[str, str]], reflection_patterns: list[str]) -> float:
         c = self.config
+        harmful = {HARMFUL_TEMPLATES[lp] == text for lp, text in lessons if lp == pattern and lp in HARMFUL_TEMPLATES}
+        helpful = any(lp == pattern and text != HARMFUL_TEMPLATES.get(lp) for lp, text in lessons)
         p = c.base_p
-        if pattern in lesson_patterns:
+        if helpful:
             p *= 1 - c.lesson_effect
         if pattern in reflection_patterns:
             p *= 1 - c.reflection_effect
-        irrelevant = sum(1 for lp in lesson_patterns if lp != pattern)
+        if True in harmful:
+            p += c.harm_effect
+        irrelevant = sum(1 for lp, _ in lessons if lp != pattern)
         return min(0.95, p + c.distraction * irrelevant)
 
     # -- modes ------------------------------------------------------------
@@ -160,7 +184,7 @@ class SimulatedLLM:
         task = self._task(prompt)
         if task is None:
             return "```python\ndef solution(*args):\n    raise NotImplementedError\n```"
-        lessons = prompts.parse_lesson_patterns(prompt)
+        lessons = prompts.parse_lessons(prompt)
         reflections = prompts.parse_reflection_patterns(prompt)
         rng = _rng("solve", seed, task.id)
         code = task.reference
@@ -195,4 +219,6 @@ class SimulatedLLM:
         if pattern not in LESSON_TEMPLATES:
             return "pattern=logic_error\nlesson=When a solution fails, re-read the specification before changing code."
         rng = _rng("distill", seed, prompts.parse_task_id(prompt))
+        if rng.random() < self.config.harmful_rate:
+            return f"pattern={pattern}\nlesson={HARMFUL_TEMPLATES[pattern]}"
         return f"pattern={pattern}\nlesson={rng.choice(LESSON_TEMPLATES[pattern])}"
